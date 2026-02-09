@@ -28,10 +28,3 @@ This repository powers my capstone **UFC analytics + prediction** project by kee
 
 - **Database**: Supabase Postgres
 - **Scheduler**: GitHub Actions (weekly run)
-
-### Credits
-
-This work is based on the original pipeline concept and implementation from:
-
-- [sterling-c/UFCstats-Data-Pipeline](https://github.com/sterling-c/UFCstats-Data-Pipeline)
-- [sterlingmaxclark.com: UFC stats data pipeline write-up](https://sterlingmaxclark.com/ufc-stats-data-pipeline/#elementor-toc__heading-anchor-0)
