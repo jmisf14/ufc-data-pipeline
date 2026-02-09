@@ -7,3 +7,4 @@ export POSTGRES_HOST=$POSTGRES_HOST
 export POSTGRES_PORT=$POSTGRES_PORT 
 cd "/stat_scrape";
 scrapy crawl ufcstatspider
+# stat_scrape.sh is the script that is used to scrape the data from the UFC stats website.
