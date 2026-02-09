@@ -1,37 +1,144 @@
-# ufcstats.com-Data-Pipeline
+## UFC Stats Data Pipeline
 
-This program is a fully dockerized application consisting of a Scrapy project and a Postgres database that scrapes and extracts data from the Ultimate Fighting Championship's dedicated website for statistics, ufcstats.com.
+A Scrapy + Postgres data pipeline that continuously collects fight, fighter, and event statistics from `ufcstats.com`, loads them into Postgres, and supports automated weekly refreshes (via GitHub Actions) for downstream analytics and machine learning.
 
-## PRE-REQUISITES
-* At least Python 3.10 is necessary
-* Docker must be installed and accessible from the command line. Desktop application is recommended.
-  
-## INSTALLATION
+### What this repo contains
 
-Create the following environment variables (creating an environment file at the root like ".env" is highly recommended):
+- **Scraper**: Scrapy spider (`ufcstatspider`) that crawls events → fights → fighters.
+- **Loader**: a Scrapy item pipeline that creates tables (if needed) and inserts/updates records in Postgres.
+- **Local stack (optional)**: Docker Compose services for Postgres, pgAdmin, and Grafana.
+- **Production DB**: intended to run against **Supabase Postgres** (managed database).
+- **Automation**: scheduled GitHub Actions workflow to refresh data every Monday.
 
-1. POSTGRES_DB = The name you would like to give the database
-2. POSTGRES_USER = The name of the user that will be created
-3. POSTGRES_PASSWORD = The password of the created user
-4. POSTGRES_HOST = This should always be set to 'db' as the virtual network docker creates makes all services recognizable to each other by their service name. DO NOT use 'localhost'.
-5. POSTGRES_PORT = The port that the Postgres database will be listening from and the Scrapy project will connect to for the database connection.
-6. MAILTO: For cron logs
-7. PGADMIN_DEFAULT_EMAIL = The email used to log in to PGadmin
-8. PGADMIN_DEFAULT_PASSWORD = The password used to login to PGadmin
+### Data model (tables)
 
-From the root of the project directory, enter from the command line:
+- **`events`**: event metadata (name/date/location/link)
+- **`fights`**: fight-level outcomes + round totals + significant-strike breakdowns
+- **`fighters`**: fighter bio + record + career rate stats
+
+### How it works (high-level)
+
+- **Incremental by date**: the pipeline reads the latest `events.date` already stored in the database and only scrapes/loads newer events.
+- **Upserts by logic**:
+  - events/fights are inserted in batches at the end of the crawl
+  - fighters are inserted if new, otherwise updated (to keep fighter stats fresh)
+
+### Prerequisites
+
+- **Python**: 3.10+ (for local runs)
+- **Docker Desktop**: for the local stack (optional)
+- **Supabase project**: if you want a managed Postgres database
+
+---
+
+## Run locally (Docker Compose)
+
+### 1) Create a `.env`
+
+Create a `.env` file in the project root (values are examples):
+
+```bash
+POSTGRES_DB=ufcstats
+POSTGRES_USER=ufc
+POSTGRES_PASSWORD=change_me
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+PGADMIN_DEFAULT_EMAIL=you@example.com
+PGADMIN_DEFAULT_PASSWORD=change_me
+
+MAILTO=you@example.com
 ```
-docker-compose up
+
+### 2) Start the stack
+
+```bash
+docker compose up -d --build
 ```
 
-To connect to the server through pgAdmin, open pgAdmin in a browser through its given port and log in with the pgAdmin credentials. Then add the server using all of the variables given for the creation of the database, including the hostname.
-Same information needed for adding database as a data source for Gafana, but disable SSL/TSL.
+### 3) Run the scraper now (don’t wait for cron)
 
-## USAGE
+```bash
+docker compose exec app bash -lc 'cd /stat_scrape && scrapy crawl ufcstatspider'
+```
 
-This pipeline is configured through crontab to execute the pipeline every week on Sunday past midnight. You can amend the schedule to your liking by changing the cron schedule, or if you would like to execute the pipeline manually:
+### 4) Verify data loaded
+
+```bash
+docker compose exec db bash -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) from events; select count(*) from fights; select count(*) from fighters;"'
 ```
-cd $PATH/TO/stat_scrape
-scrapy crawl ufcstatspider
+
+### 5) UI tools
+
+- **pgAdmin**: `http://localhost:8888`
+- **Grafana**: `http://localhost:3000`
+
+---
+
+## Supabase (managed Postgres)
+
+### One-time migration (local → Supabase)
+
+1) **Dump** your local Docker DB:
+
+```bash
+docker compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-privileges > ufcstats.dump
 ```
-For more information on how the program works: https://sterlingmaxclark.com/ufc-stats-data-pipeline/
+
+2) **Restore** to Supabase:
+
+- Use Supabase dashboard → **Connect → Database**
+- Prefer **Session pooler** for IPv4 environments
+- Supabase requires SSL (`sslmode=require`)
+
+```bash
+pg_restore --no-owner --no-privileges \
+  --dbname "postgresql://<SUPABASE_USER>:<SUPABASE_PASSWORD>@<SUPABASE_HOST>:<SUPABASE_PORT>/postgres?sslmode=require" \
+  ufcstats.dump
+```
+
+### Export CSV (for ML / analysis)
+
+- **Table Editor**: select table → export CSV
+- **SQL Editor**: run a query → Export → CSV
+
+---
+
+## Automation: GitHub Actions (every Monday)
+
+This repo is designed to run the scraper on a schedule and write results into **Supabase Postgres**.
+
+### 1) Add GitHub Secrets
+
+In GitHub: **Settings → Secrets and variables → Actions**, create:
+
+- **`SUPABASE_DB_HOST`**
+- **`SUPABASE_DB_PORT`**
+- **`SUPABASE_DB_NAME`** (usually `postgres`)
+- **`SUPABASE_DB_USER`** (pooler often looks like `postgres.<project-ref>`)
+- **`SUPABASE_DB_PASSWORD`**
+
+### 2) Add a scheduled workflow
+
+Create `.github/workflows/supabase_scrape.yml` that:
+
+- runs `scrapy crawl ufcstatspider`
+- reads DB creds from Secrets
+- sets `PGSSLMODE=require`
+- uses a Monday `cron` schedule (note: cron is UTC)
+
+### 3) Validate
+
+- Trigger the workflow once with **Run workflow**
+- Verify in Supabase:
+
+```sql
+select max(date) as newest_event_date, count(*) as total_events from events;
+```
+
+---
+
+## Notes / disclaimers
+
+- **Data source**: this project scrapes `ufcstats.com`. Be mindful of the site’s terms and robots policies.
+- **Credits**: inspired by the original pipeline design described in [sterlingmaxclark.com](https://sterlingmaxclark.com/ufc-stats-data-pipeline/#elementor-toc__heading-anchor-0) and the upstream repo at [sterling-c/UFCstats-Data-Pipeline](https://github.com/sterling-c/UFCstats-Data-Pipeline).
