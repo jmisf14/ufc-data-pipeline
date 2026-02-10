@@ -16,36 +16,46 @@ class UFCStatsUpcomingSpider(Spider):
     """
 
     name = "ufcstatsupcomingspider"
-    start_urls = ["http://ufcstats.com/statistics/events/upcoming?page=all"]
+    start_urls = ["http://ufcstats.com/statistics/events/upcoming"]
 
     def parse(self, response):
         source_date_format = "%B %d, %Y"
-        logging.debug("Parsing upcoming events...")
-        for row in response.xpath(
-            '//*[@class="b-statistics__table-events"]//tbody//tr'
-        )[2:]:
+        logging.info("Parsing upcoming events from: %s", response.url)
+        rows = response.xpath('//*[@class="b-statistics__table-events"]//tbody//tr')[2:]
+        logging.info("Found %d event rows to process", len(rows))
+        
+        for row in rows:
             content = row.xpath("td[1]//text() | td[1]//@href").getall()
-            if not content:
+            if not content or len(content) < 6:
+                logging.warning("Skipping row with insufficient content: %s", content)
                 continue
 
-            event_link = content[2]
-            event = ScheduledEvent(
-                id=event_link.split("/")[-1],
-                name=" ".join(content[3].split()),
-                date=datetime.strptime(
-                    " ".join(content[5].split()), source_date_format
-                ),
-                location=" ".join(row.xpath("td[2]//text()").getall()[0].split()),
-                link=event_link,
-            )
-
-            yield event
-            yield Request(
-                event.link,
-                callback=self.parse_event,
-                cb_kwargs={"event_id": event.id},
-                dont_filter=False,
-            )
+            try:
+                event_link = content[2]
+                if not event_link or not event_link.startswith("http"):
+                    logging.warning("Invalid event link: %s", event_link)
+                    continue
+                    
+                event = ScheduledEvent(
+                    id=event_link.split("/")[-1],
+                    name=" ".join(content[3].split()),
+                    date=datetime.strptime(
+                        " ".join(content[5].split()), source_date_format
+                    ),
+                    location=" ".join(row.xpath("td[2]//text()").getall()[0].split()),
+                    link=event_link,
+                )
+                logging.debug("Yielding scheduled event: %s (%s)", event.name, event.id)
+                yield event
+                yield Request(
+                    event.link,
+                    callback=self.parse_event,
+                    cb_kwargs={"event_id": event.id},
+                    dont_filter=False,
+                )
+            except (IndexError, ValueError, AttributeError) as e:
+                logging.warning("Error parsing event row: %s - %s", content, e)
+                continue
 
     def parse_event(self, response, event_id):
         """
