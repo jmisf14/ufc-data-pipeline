@@ -1,11 +1,4 @@
-from stat_scrape.items import (
-    Event,
-    Fight,
-    Fighter,
-    FighterImage,
-    ScheduledEvent,
-    ScheduledFight,
-)
+from stat_scrape.items import Event, Fight, Fighter
 from dotenv import load_dotenv
 from datetime import date
 
@@ -22,9 +15,6 @@ class StatScrapePipeline:
         self.fights = []
         self.new_fighters = []
         self.existing_fighters = []
-        self.fighter_images = []
-        self.scheduled_events = []
-        self.scheduled_fights = []
 
         load_dotenv()
         hostname = os.environ.get("POSTGRES_HOST", "Hostname not found")
@@ -56,16 +46,6 @@ class StatScrapePipeline:
         self.cursor.execute(
             open("stat_scrape/sql/create_fighters_table.sql", "r").read()
         )
-        # Auxiliary tables (images and scheduled bouts)
-        self.cursor.execute(
-            open("stat_scrape/sql/create_fighter_images_table.sql", "r").read()
-        )
-        self.cursor.execute(
-            open("stat_scrape/sql/create_scheduled_events_table.sql", "r").read()
-        )
-        self.cursor.execute(
-            open("stat_scrape/sql/create_scheduled_fights_table.sql", "r").read()
-        )
 
     def process_item(self, item, spider):
         if isinstance(item, Event):
@@ -83,16 +63,6 @@ class StatScrapePipeline:
 
             else:
                 self.new_fighters.append(item)
-
-        elif isinstance(item, FighterImage):
-            # Always upsert via ON CONFLICT in SQL
-            self.fighter_images.append(item)
-
-        elif isinstance(item, ScheduledEvent):
-            self.scheduled_events.append(item)
-
-        elif isinstance(item, ScheduledFight):
-            self.scheduled_fights.append(item)
 
         self.connection.commit()
         return item
@@ -275,92 +245,6 @@ class StatScrapePipeline:
                 logging.info("Updated fighter in database.")
         except Exception as e:
             logging.error(f"Could not update fighter in database: {e}")
-            self.connection.commit()
-            raise
-
-        # Upsert fighter images
-        logging.debug("Upserting fighter images into database")
-        try:
-            if self.fighter_images:
-                psycopg2.extras.execute_batch(
-                    self.cursor,
-                    open(
-                        "stat_scrape/sql/insert_into_fighter_images.sql", "r"
-                    ).read(),
-                    list(
-                        [
-                            (
-                                img.fighter_id,
-                                img.image_url,
-                            )
-                            for img in self.fighter_images
-                            if img.image_url
-                        ]
-                    ),
-                )
-                self.connection.commit()
-                logging.info("Upserted fighter images.")
-        except Exception as e:
-            logging.error(f"Could not upsert fighter images: {e}")
-            self.connection.commit()
-            raise
-
-        # Upsert scheduled events
-        logging.debug("Upserting scheduled events into database")
-        try:
-            if self.scheduled_events:
-                psycopg2.extras.execute_batch(
-                    self.cursor,
-                    open(
-                        "stat_scrape/sql/insert_into_scheduled_events.sql", "r"
-                    ).read(),
-                    list(
-                        [
-                            (
-                                ev.id,
-                                ev.name,
-                                ev.date,
-                                ev.location,
-                                ev.link,
-                            )
-                            for ev in self.scheduled_events
-                        ]
-                    ),
-                )
-                self.connection.commit()
-                logging.info("Upserted scheduled events.")
-        except Exception as e:
-            logging.error(f"Could not upsert scheduled events: {e}")
-            self.connection.commit()
-            raise
-
-        # Upsert scheduled fights
-        logging.debug("Upserting scheduled fights into database")
-        try:
-            if self.scheduled_fights:
-                psycopg2.extras.execute_batch(
-                    self.cursor,
-                    open(
-                        "stat_scrape/sql/insert_into_scheduled_fights.sql", "r"
-                    ).read(),
-                    list(
-                        [
-                            (
-                                sf.id,
-                                sf.event_id,
-                                sf.red_id,
-                                sf.blue_id,
-                                sf.division,
-                                sf.link,
-                            )
-                            for sf in self.scheduled_fights
-                        ]
-                    ),
-                )
-                self.connection.commit()
-                logging.info("Upserted scheduled fights.")
-        except Exception as e:
-            logging.error(f"Could not upsert scheduled fights: {e}")
             self.connection.commit()
             raise
 

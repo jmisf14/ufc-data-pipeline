@@ -3,7 +3,7 @@ import re
 
 from scrapy import Spider, Request
 from datetime import datetime, time, date, timedelta
-from stat_scrape.items import Event, Fight, Fighter, FighterImage
+from stat_scrape.items import Event, Fight, Fighter
 from dotenv import load_dotenv
 
 
@@ -250,13 +250,3 @@ class UFCStatsSpider(Spider):
             link=response.url,
         )
         yield fighter
-
-        # Capture profile image URL for this fighter as a separate item
-        image_url = response.xpath(
-            '//*[@class="b-content__fighter"]//img/@src | //*[@class="b-content__profile"]//img/@src'
-        ).get()
-        if image_url:
-            yield FighterImage(
-                fighter_id=response.url.split("/")[-1],
-                image_url=image_url,
-            )

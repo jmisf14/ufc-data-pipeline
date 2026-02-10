@@ -107,39 +107,3 @@ class Fighter(scrapy.Item):
     takedown_def: Optional[int] = field(default=None)
     sub_avg: Optional[float] = field(default=None)
     link: Optional[str] = field(default=None)
-
-
-@dataclass(frozen=True)
-class FighterImage(scrapy.Item):
-    """
-    Lightweight item to store a fighter's profile image URL separately from
-    core fighter stats. This avoids changing the existing fighters schema.
-    """
-    fighter_id: Optional[str] = field(default=None)
-    image_url: Optional[str] = field(default=None)
-
-
-@dataclass(frozen=True)
-class ScheduledEvent(scrapy.Item):
-    """
-    Upcoming event (no completed stats yet).
-    """
-    id: Optional[str] = field(default=None)
-    name: Optional[str] = field(default=None)
-    date: Optional[datetime] = field(default=None)
-    location: Optional[str] = field(default=None)
-    link: Optional[str] = field(default=None)
-
-
-@dataclass(frozen=True)
-class ScheduledFight(scrapy.Item):
-    """
-    Scheduled (future) bout: who vs who at which event/division.
-    No per-round stats are available yet.
-    """
-    id: Optional[str] = field(default=None)
-    event_id: Optional[str] = field(default=None)
-    red_id: Optional[str] = field(default=None)
-    blue_id: Optional[str] = field(default=None)
-    division: Optional[str] = field(default=None)
-    link: Optional[str] = field(default=None)
