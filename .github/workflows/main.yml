@@ -28,4 +28,7 @@ jobs:
       - run: pip install -r app/requirements.txt
       - name: Run Scrapy crawl
         working-directory: app/stat_scrape
-        run: scrapy crawl ufcstatspider
+        run: |
+          scrapy crawl ufcstatspider
+          scrapy crawl ufc ufcstatsupcomingspider
+
