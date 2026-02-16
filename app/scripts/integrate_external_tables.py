@@ -92,31 +92,23 @@ def create_fight_results_table(conn):
     """Crea tabla EXTERNA para fight_results (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    create_table_sql = """
-    -- Tabla complementaria externa - NO interfiere con pipeline de Scrapy
-    CREATE TABLE IF NOT EXISTS external_fight_results (
-        id SERIAL PRIMARY KEY,
-        event_name VARCHAR(255),
-        bout VARCHAR(255),
-        outcome VARCHAR(10),
-        weightclass VARCHAR(255),
-        method VARCHAR(255),
-        round INTEGER,
-        time VARCHAR(50),
-        time_format VARCHAR(100),
-        referee VARCHAR(255),
-        details TEXT,
-        url VARCHAR(500) UNIQUE,
-        fight_id VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    sql_paths = [
+        "stat_scrape/sql/create_fight_results_table.sql",
+        "app/stat_scrape/stat_scrape/sql/create_fight_results_table.sql",
+        "../stat_scrape/stat_scrape/sql/create_fight_results_table.sql"
+    ]
     
-    CREATE INDEX IF NOT EXISTS idx_fight_results_fight_id ON fight_results(fight_id);
-    CREATE INDEX IF NOT EXISTS idx_fight_results_url ON fight_results(url);
-    """
+    sql_content = None
+    for path in sql_paths:
+        if os.path.exists(path):
+            sql_content = open(path, "r").read()
+            break
     
-    cursor.execute(create_table_sql)
+    if not sql_content:
+        raise FileNotFoundError(f"No se encontró create_fight_results_table.sql en: {sql_paths}")
+    
+    cursor.execute(sql_content)
     conn.commit()
     logger.info("✅ Tabla external_fight_results creada/verificada (complementaria, independiente)")
 
@@ -125,7 +117,23 @@ def create_fighter_tott_table(conn):
     """Crea tabla EXTERNA para fighter_tott (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    create_table_sql = open("stat_scrape/sql/create_fighter_tott_table.sql", "r").read()
+    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    sql_paths = [
+        "stat_scrape/sql/create_fighter_tott_table.sql",
+        "app/stat_scrape/stat_scrape/sql/create_fighter_tott_table.sql",
+        "../stat_scrape/stat_scrape/sql/create_fighter_tott_table.sql"
+    ]
+    
+    sql_content = None
+    for path in sql_paths:
+        if os.path.exists(path):
+            sql_content = open(path, "r").read()
+            break
+    
+    if not sql_content:
+        raise FileNotFoundError(f"No se encontró create_fighter_tott_table.sql en: {sql_paths}")
+    
+    create_table_sql = sql_content
     
     cursor.execute(create_table_sql)
     conn.commit()
@@ -136,7 +144,23 @@ def create_fight_stats_table(conn):
     """Crea tabla EXTERNA para fight_stats (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    create_table_sql = open("stat_scrape/sql/create_fight_stats_table.sql", "r").read()
+    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    sql_paths = [
+        "stat_scrape/sql/create_fight_stats_table.sql",
+        "app/stat_scrape/stat_scrape/sql/create_fight_stats_table.sql",
+        "../stat_scrape/stat_scrape/sql/create_fight_stats_table.sql"
+    ]
+    
+    sql_content = None
+    for path in sql_paths:
+        if os.path.exists(path):
+            sql_content = open(path, "r").read()
+            break
+    
+    if not sql_content:
+        raise FileNotFoundError(f"No se encontró create_fight_stats_table.sql en: {sql_paths}")
+    
+    create_table_sql = sql_content
     
     cursor.execute(create_table_sql)
     conn.commit()
