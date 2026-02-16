@@ -30,6 +30,7 @@ python-dotenv==1.0.0
 queuelib==1.6.2
 requests==2.31.0
 requests-file==1.5.1
+pandas==2.1.4
 Scrapy==2.10.1
 service-identity==23.1.0
 soupsieve==2.5
