@@ -202,57 +202,55 @@ def create_fight_stats_table(conn):
 
 
 def load_fight_results(df_results, conn):
-    """Carga fight_results a la base de datos"""
+    """
+    Carga `ufc_fight_results.csv` en la tabla `external_fight_results`
+    haciendo un snapshot completo (TRUNCATE + INSERT).
+    No se inventan columnas ni se hace parsing complejo: se respeta el CSV.
+    """
     if df_results is None or df_results.empty:
         logger.warning("⚠️  No hay datos de fight_results para cargar")
         return
-    
+
+    required_cols = [
+        "EVENT",
+        "BOUT",
+        "OUTCOME",
+        "WEIGHTCLASS",
+        "METHOD",
+        "ROUND",
+        "TIME",
+        "TIME FORMAT",
+        "REFEREE",
+        "DETAILS",
+        "URL",
+    ]
+    missing = [c for c in required_cols if c not in df_results.columns]
+    if missing:
+        logger.error(f"❌ Columnas faltantes en fight_results CSV: {missing}")
+        return
+
     cursor = conn.cursor()
-    
-    # Preparar datos
-    df_results['fight_id'] = df_results['URL'].str.extract(r'/([^/]+)$') if 'URL' in df_results.columns else None
-    
+
+    # Extraemos columnas en el mismo orden que la tabla
+    df = df_results[required_cols].copy()
+    df = df.where(pd.notna(df), None)
+
+    # Snapshot completo
+    cursor.execute("TRUNCATE TABLE external_fight_results;")
+
     insert_sql = """
-    INSERT INTO external_fight_results 
-    (event_name, bout, outcome, weightclass, method, round, time, time_format, 
-     referee, details, url, fight_id)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (url) DO UPDATE SET
-        event_name = EXCLUDED.event_name,
-        bout = EXCLUDED.bout,
-        outcome = EXCLUDED.outcome,
-        weightclass = EXCLUDED.weightclass,
-        method = EXCLUDED.method,
-        round = EXCLUDED.round,
-        time = EXCLUDED.time,
-        time_format = EXCLUDED.time_format,
-        referee = EXCLUDED.referee,
-        details = EXCLUDED.details,
-        fight_id = EXCLUDED.fight_id,
-        updated_at = CURRENT_TIMESTAMP
+        INSERT INTO external_fight_results
+        (event, bout, outcome, weightclass, method,
+         round, time, time_format, referee, details, url)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """
-    
-    records = []
-    for _, row in df_results.iterrows():
-        records.append((
-            row.get('EVENT', None),
-            row.get('BOUT', None),
-            row.get('OUTCOME', None),
-            row.get('WEIGHTCLASS', None),
-            row.get('METHOD', None),
-            int(row.get('ROUND', 0)) if pd.notna(row.get('ROUND')) else None,
-            row.get('TIME', None),
-            row.get('TIME FORMAT', None),
-            row.get('REFEREE', None),
-            row.get('DETAILS', None),
-            row.get('URL', None),
-            row.get('fight_id', None)
-        ))
-    
+
+    records = list(df.itertuples(index=False, name=None))
+
     try:
         cursor.executemany(insert_sql, records)
         conn.commit()
-        logger.info(f"✅ {len(records)} registros cargados/actualizados en external_fight_results")
+        logger.info(f"✅ {len(records)} filas cargadas en external_fight_results")
     except Exception as e:
         conn.rollback()
         logger.error(f"❌ Error cargando fight_results: {e}")
@@ -260,190 +258,46 @@ def load_fight_results(df_results, conn):
 
 
 def load_fighter_tott(df_tott, conn):
-    """Carga fighter_tott a la base de datos"""
+    """
+    Carga `ufc_fighter_tott.csv` en la tabla `external_fighter_tott`
+    haciendo un snapshot completo (TRUNCATE + INSERT).
+    Solo usa las columnas que existen realmente en el CSV.
+    """
     if df_tott is None or df_tott.empty:
         logger.warning("⚠️  No hay datos de fighter_tott para cargar")
         return
-    
+
     cursor = conn.cursor()
-    
-    logger.info(f"📋 Columnas disponibles en CSV: {list(df_tott.columns)}")
-    
-    # Mapeo según las columnas reales del CSV
-    # El CSV tiene: FIGHTER, HEIGHT, WEIGHT, REACH, STANCE, DOB, URL
-    def find_column(df, possible_names):
-        """Encuentra una columna por posibles nombres"""
-        for name in possible_names:
-            if name in df.columns:
-                return name
-        return None
-    
-    # Mapear columnas disponibles
-    fighter_name_col = find_column(df_tott, ['FIGHTER', 'fighter_name', 'name', 'fighter'])
-    height_col = find_column(df_tott, ['HEIGHT', 'height', 'ht'])
-    weight_col = find_column(df_tott, ['WEIGHT', 'weight', 'wt'])
-    reach_col = find_column(df_tott, ['REACH', 'reach'])
-    stance_col = find_column(df_tott, ['STANCE', 'stance'])
-    dob_col = find_column(df_tott, ['DOB', 'dob', 'date_of_birth', 'birthdate'])
-    url_col = find_column(df_tott, ['URL', 'url', 'link'])
-    
-    logger.info(f"📋 Mapeo de columnas encontradas:")
-    logger.info(f"   fighter_name: {fighter_name_col}")
-    logger.info(f"   height: {height_col}")
-    logger.info(f"   weight: {weight_col}")
-    logger.info(f"   reach: {reach_col}")
-    logger.info(f"   stance: {stance_col}")
-    logger.info(f"   dob: {dob_col}")
-    logger.info(f"   url: {url_col}")
-    
-    # Nota importante:
-    # `ufc_fighter_tott.csv` (en este repo externo) NO trae `age`.
-    # Para cubrir tu caso de uso, calculamos `age` desde `DOB` (edad actual aprox en años).
-    
+
+    required_cols = ["FIGHTER", "HEIGHT", "WEIGHT", "REACH", "STANCE", "DOB", "URL"]
+    missing = [c for c in required_cols if c not in df_tott.columns]
+    if missing:
+        logger.error(f"❌ Columnas faltantes en fighter_tott CSV: {missing}")
+        return
+
+    logger.info(f"📋 Columnas disponibles en CSV fighter_tott: {list(df_tott.columns)}")
+
+    df = df_tott[required_cols].copy()
+    df = df.where(pd.notna(df), None)
+
+    # Snapshot completo
+    cursor.execute("TRUNCATE TABLE external_fighter_tott;")
+
     insert_sql = """
-    INSERT INTO external_fighter_tott 
-    (fighter_id, fight_id, fighter_name, age, height, weight, reach, stance, dob,
-     sig_str_landed_per_min, sig_str_accuracy, sig_str_absorbed_per_min, 
-     sig_str_defense, takedown_avg, takedown_accuracy, takedown_defense, submission_avg)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (fighter_id, fight_id) DO UPDATE SET
-        fighter_name = EXCLUDED.fighter_name,
-        age = EXCLUDED.age,
-        height = EXCLUDED.height,
-        weight = EXCLUDED.weight,
-        reach = EXCLUDED.reach,
-        stance = EXCLUDED.stance,
-        dob = EXCLUDED.dob,
-        sig_str_landed_per_min = EXCLUDED.sig_str_landed_per_min,
-        sig_str_accuracy = EXCLUDED.sig_str_accuracy,
-        sig_str_absorbed_per_min = EXCLUDED.sig_str_absorbed_per_min,
-        sig_str_defense = EXCLUDED.sig_str_defense,
-        takedown_avg = EXCLUDED.takedown_avg,
-        takedown_accuracy = EXCLUDED.takedown_accuracy,
-        takedown_defense = EXCLUDED.takedown_defense,
-        submission_avg = EXCLUDED.submission_avg,
-        updated_at = CURRENT_TIMESTAMP
+        INSERT INTO external_fighter_tott
+        (fighter, height, weight, reach, stance, dob, url)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
     """
-    
-    records = []
-    for _, row in df_tott.iterrows():
-        # Extraer fighter_id de la URL si existe (este CSV suele tener fighter-details/ID)
-        fighter_id = None
-        if url_col and pd.notna(row.get(url_col)):
-            url = str(row[url_col])
-            # Intentar extraer ID de la URL (formato: .../fighter-details/ID o .../fight-details/ID)
-            if 'fighter-details' in url:
-                fighter_id = url.split('/')[-1] if url.endswith('/') else url.split('/')[-1]
-        
-        # Obtener valores de las columnas disponibles
-        fighter_name = row.get(fighter_name_col) if fighter_name_col else None
-        height = row.get(height_col) if height_col else None
-        weight = row.get(weight_col) if weight_col else None
-        reach = row.get(reach_col) if reach_col else None
-        stance = row.get(stance_col) if stance_col else None
-        
-        # Parsear DOB si existe (DOB suele venir como "Jan 01, 1990")
-        dob = None
-        if dob_col and pd.notna(row.get(dob_col)):
-            dob_str = str(row[dob_col]).strip()
-            if dob_str and dob_str != '--' and dob_str != '':
-                try:
-                    # Intentar parsear diferentes formatos de fecha
-                    for fmt in ['%b %d, %Y', '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y']:
-                        try:
-                            dob = datetime.strptime(dob_str, fmt).date()
-                            break
-                        except:
-                            continue
-                except:
-                    dob = None
 
-        age = None
-        if dob:
-            try:
-                age = int((date.today() - dob).days / 365.25)
-            except:
-                age = None
-        
-        # Limpiar valores None y strings vacíos
-        def clean_value(val):
-            if pd.isna(val) or val == '--' or val == '':
-                return None
-            return str(val).strip() if val else None
-        
-        records.append((
-            fighter_id,  # Puede ser None si no se puede extraer de URL
-            None,        # fight_id - este CSV no es por pelea, lo dejamos NULL
-            clean_value(fighter_name),
-            age,   # age - calculada desde DOB
-            clean_value(height),
-            clean_value(weight),
-            clean_value(reach),
-            clean_value(stance),
-            dob,
-            None,  # sig_str_landed_per_min - no disponible
-            None,  # sig_str_accuracy - no disponible
-            None,  # sig_str_absorbed_per_min - no disponible
-            None,  # sig_str_defense - no disponible
-            None,  # takedown_avg - no disponible
-            None,  # takedown_accuracy - no disponible
-            None,  # takedown_defense - no disponible
-            None   # submission_avg - no disponible
-        ))
-    
+    records = list(df.itertuples(index=False, name=None))
+
     try:
-        # Hacemos UPSERT por fighter_id cuando existe; si no, por fighter_name.
-        with_id = [r for r in records if r[0] and r[2]]
-        without_id = [r for r in records if (not r[0]) and r[2]]
-
-        insert_sql_by_id = """
-        INSERT INTO external_fighter_tott
-        (fighter_id, fight_id, fighter_name, age, height, weight, reach, stance, dob,
-         sig_str_landed_per_min, sig_str_accuracy, sig_str_absorbed_per_min,
-         sig_str_defense, takedown_avg, takedown_accuracy, takedown_defense, submission_avg)
-        VALUES %s
-        ON CONFLICT (fighter_id) WHERE fighter_id IS NOT NULL
-        DO UPDATE SET
-            fighter_name = EXCLUDED.fighter_name,
-            age = EXCLUDED.age,
-            height = EXCLUDED.height,
-            weight = EXCLUDED.weight,
-            reach = EXCLUDED.reach,
-            stance = EXCLUDED.stance,
-            dob = EXCLUDED.dob,
-            updated_at = CURRENT_TIMESTAMP
-        """
-
-        insert_sql_by_name = """
-        INSERT INTO external_fighter_tott
-        (fighter_id, fight_id, fighter_name, age, height, weight, reach, stance, dob,
-         sig_str_landed_per_min, sig_str_accuracy, sig_str_absorbed_per_min,
-         sig_str_defense, takedown_avg, takedown_accuracy, takedown_defense, submission_avg)
-        VALUES %s
-        ON CONFLICT (fighter_name) WHERE fighter_id IS NULL
-        DO UPDATE SET
-            age = EXCLUDED.age,
-            height = EXCLUDED.height,
-            weight = EXCLUDED.weight,
-            reach = EXCLUDED.reach,
-            stance = EXCLUDED.stance,
-            dob = EXCLUDED.dob,
-            updated_at = CURRENT_TIMESTAMP
-        """
-
-        if with_id:
-            psycopg2.extras.execute_values(cursor, insert_sql_by_id, with_id, page_size=1000)
-        if without_id:
-            psycopg2.extras.execute_values(cursor, insert_sql_by_name, without_id, page_size=1000)
-
+        cursor.executemany(insert_sql, records)
         conn.commit()
-        logger.info(f"✅ external_fighter_tott: {len(with_id)} upserts por fighter_id, {len(without_id)} upserts por fighter_name")
+        logger.info(f"✅ {len(records)} filas cargadas en external_fighter_tott")
     except Exception as e:
         conn.rollback()
         logger.error(f"❌ Error cargando fighter_tott: {e}")
-        logger.error(f"   Columnas disponibles: {list(df_tott.columns)}")
-        import traceback
-        logger.error(traceback.format_exc())
         raise
 
 
@@ -499,140 +353,66 @@ def extract_round_number(round_str):
 
 
 def load_fight_stats(df_stats, conn):
-    """Carga fight_stats a la base de datos (estadísticas por round)"""
+    """
+    Carga `ufc_fight_stats.csv` en la tabla `external_fight_stats`
+    haciendo un snapshot completo (TRUNCATE + INSERT).
+    No se parsean porcentajes ni fracciones; se guarda el texto tal cual.
+    """
     if df_stats is None or df_stats.empty:
         logger.warning("⚠️  No hay datos de fight_stats para cargar")
         return
-    
+
+    required_cols = [
+        "EVENT",
+        "BOUT",
+        "ROUND",
+        "FIGHTER",
+        "KD",
+        "SIG.STR.",
+        "SIG.STR. %",
+        "TOTAL STR.",
+        "TD",
+        "TD %",
+        "SUB.ATT",
+        "REV.",
+        "CTRL",
+        "HEAD",
+        "BODY",
+        "LEG",
+        "DISTANCE",
+        "CLINCH",
+        "GROUND",
+    ]
+    missing = [c for c in required_cols if c not in df_stats.columns]
+    if missing:
+        logger.error(f"❌ Columnas faltantes en fight_stats CSV: {missing}")
+        return
+
     cursor = conn.cursor()
-    
+
+    df = df_stats[required_cols].copy()
+    df = df.where(pd.notna(df), None)
+
+    # Snapshot completo
+    cursor.execute("TRUNCATE TABLE external_fight_stats;")
+
     insert_sql = """
-    INSERT INTO external_fight_stats 
-    (event_name, bout, round_number, round_label, fighter_name, knockdowns,
-     sig_str_landed, sig_str_attempted, sig_str_percentage,
-     total_str_landed, total_str_attempted,
-     takedown_landed, takedown_attempted, takedown_percentage,
-     submission_attempts, reversals, control_time,
-     head_landed, head_attempted,
-     body_landed, body_attempted,
-     leg_landed, leg_attempted,
-     distance_landed, distance_attempted,
-     clinch_landed, clinch_attempted,
-     ground_landed, ground_attempted)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (event_name, bout, round_number, fighter_name) DO UPDATE SET
-        round_label = EXCLUDED.round_label,
-        knockdowns = EXCLUDED.knockdowns,
-        sig_str_landed = EXCLUDED.sig_str_landed,
-        sig_str_attempted = EXCLUDED.sig_str_attempted,
-        sig_str_percentage = EXCLUDED.sig_str_percentage,
-        total_str_landed = EXCLUDED.total_str_landed,
-        total_str_attempted = EXCLUDED.total_str_attempted,
-        takedown_landed = EXCLUDED.takedown_landed,
-        takedown_attempted = EXCLUDED.takedown_attempted,
-        takedown_percentage = EXCLUDED.takedown_percentage,
-        submission_attempts = EXCLUDED.submission_attempts,
-        reversals = EXCLUDED.reversals,
-        control_time = EXCLUDED.control_time,
-        head_landed = EXCLUDED.head_landed,
-        head_attempted = EXCLUDED.head_attempted,
-        body_landed = EXCLUDED.body_landed,
-        body_attempted = EXCLUDED.body_attempted,
-        leg_landed = EXCLUDED.leg_landed,
-        leg_attempted = EXCLUDED.leg_attempted,
-        distance_landed = EXCLUDED.distance_landed,
-        distance_attempted = EXCLUDED.distance_attempted,
-        clinch_landed = EXCLUDED.clinch_landed,
-        clinch_attempted = EXCLUDED.clinch_attempted,
-        ground_landed = EXCLUDED.ground_landed,
-        ground_attempted = EXCLUDED.ground_attempted,
-        updated_at = CURRENT_TIMESTAMP
+        INSERT INTO external_fight_stats
+        (event, bout, round, fighter, kd,
+         sig_str, sig_str_pct, total_str, td, td_pct,
+         sub_att, rev, ctrl, head, body, leg, distance, clinch, ground)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """
-    
-    # Vectorizamos parsing para que sea MUCHO más rápido (evita iterrows).
-    df = df_stats.copy()
 
-    # Round number + label
-    df["round_label"] = df["ROUND"].astype(str)
-    df["round_number"] = pd.to_numeric(df["ROUND"].astype(str).str.extract(r"(\d+)")[0], errors="coerce").astype("Int64")
+    records = list(df.itertuples(index=False, name=None))
 
-    def split_of(series: pd.Series):
-        s = series.astype(str).replace({"nan": pd.NA, "---": pd.NA, "": pd.NA})
-        parts = s.str.split(" of ", n=1, expand=True)
-        landed = pd.to_numeric(parts[0], errors="coerce").astype("Int64")
-        attempted = pd.to_numeric(parts[1], errors="coerce").astype("Int64") if parts.shape[1] > 1 else pd.Series([pd.NA] * len(series), dtype="Int64")
-        return landed, attempted
-
-    def pct(series: pd.Series):
-        s = series.astype(str).replace({"nan": pd.NA, "---": pd.NA, "": pd.NA})
-        s = s.str.replace("%", "", regex=False)
-        return pd.to_numeric(s, errors="coerce").astype("Int64")
-
-    kd = pd.to_numeric(df["KD"], errors="coerce")
-    sub_att = pd.to_numeric(df["SUB.ATT"], errors="coerce")
-    rev = pd.to_numeric(df["REV."], errors="coerce")
-    ctrl = df["CTRL"].astype(str).replace({"nan": pd.NA, "--": pd.NA, "": pd.NA})
-
-    sig_l, sig_a = split_of(df["SIG.STR."])
-    tot_l, tot_a = split_of(df["TOTAL STR."])
-    td_l, td_a = split_of(df["TD"])
-    head_l, head_a = split_of(df["HEAD"])
-    body_l, body_a = split_of(df["BODY"])
-    leg_l, leg_a = split_of(df["LEG"])
-    dist_l, dist_a = split_of(df["DISTANCE"])
-    clinch_l, clinch_a = split_of(df["CLINCH"])
-    ground_l, ground_a = split_of(df["GROUND"])
-
-    sig_pct = pct(df["SIG.STR. %"])
-    td_pct = pct(df["TD %"])
-
-    out = pd.DataFrame(
-        {
-            "event_name": df["EVENT"],
-            "bout": df["BOUT"],
-            "round_number": df["round_number"],
-            "round_label": df["round_label"],
-            "fighter_name": df["FIGHTER"],
-            "knockdowns": kd,
-            "sig_str_landed": sig_l,
-            "sig_str_attempted": sig_a,
-            "sig_str_percentage": sig_pct,
-            "total_str_landed": tot_l,
-            "total_str_attempted": tot_a,
-            "takedown_landed": td_l,
-            "takedown_attempted": td_a,
-            "takedown_percentage": td_pct,
-            "submission_attempts": sub_att,
-            "reversals": rev,
-            "control_time": ctrl,
-            "head_landed": head_l,
-            "head_attempted": head_a,
-            "body_landed": body_l,
-            "body_attempted": body_a,
-            "leg_landed": leg_l,
-            "leg_attempted": leg_a,
-            "distance_landed": dist_l,
-            "distance_attempted": dist_a,
-            "clinch_landed": clinch_l,
-            "clinch_attempted": clinch_a,
-            "ground_landed": ground_l,
-            "ground_attempted": ground_a,
-        }
-    )
-
-    # Convertimos a tuplas
-    records = list(out.itertuples(index=False, name=None))
-    
     try:
-        # execute_values es MUCHO más rápido que executemany para volumen grande
-        psycopg2.extras.execute_values(cursor, insert_sql.replace("VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, \n            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", "VALUES %s"), records, page_size=2000)
+        cursor.executemany(insert_sql, records)
         conn.commit()
-        logger.info(f"✅ {len(records)} registros cargados en external_fight_stats")
+        logger.info(f"✅ {len(records)} filas cargadas en external_fight_stats")
     except Exception as e:
         conn.rollback()
         logger.error(f"❌ Error cargando fight_stats: {e}")
-        logger.error(f"   Columnas disponibles: {list(df_stats.columns)}")
         raise
 
 
@@ -659,33 +439,23 @@ def main():
     conn = connect_to_db()
     
     try:
-        # Crear tablas (siempre intentar crear, incluso si algunos CSVs fallaron)
-        try:
-            create_fight_results_table(conn)
-            if df_results is not None:
-                load_fight_results(df_results, conn)
-            else:
-                logger.warning("⚠️  No se cargaron datos de fight_results (CSV no descargado)")
-        except Exception as e:
-            logger.error(f"❌ Error procesando fight_results: {e}")
-        
-        try:
-            create_fighter_tott_table(conn)
-            if df_tott is not None:
-                load_fighter_tott(df_tott, conn)
-            else:
-                logger.warning("⚠️  No se cargaron datos de fighter_tott (CSV no descargado)")
-        except Exception as e:
-            logger.error(f"❌ Error procesando fighter_tott: {e}")
-        
-        try:
-            create_fight_stats_table(conn)
-            if df_stats is not None:
-                load_fight_stats(df_stats, conn)
-            else:
-                logger.warning("⚠️  No se cargaron datos de fight_stats (CSV no descargado)")
-        except Exception as e:
-            logger.error(f"❌ Error procesando fight_stats: {e}")
+        # IMPORTANTE: asumimos que las tablas ya existen en Supabase.
+        # NO tocamos el esquema de la base de datos, solo hacemos snapshot de los CSV.
+
+        if df_results is not None:
+            load_fight_results(df_results, conn)
+        else:
+            logger.warning("⚠️  No se cargaron datos de fight_results (CSV no descargado)")
+
+        if df_tott is not None:
+            load_fighter_tott(df_tott, conn)
+        else:
+            logger.warning("⚠️  No se cargaron datos de fighter_tott (CSV no descargado)")
+
+        if df_stats is not None:
+            load_fight_stats(df_stats, conn)
+        else:
+            logger.warning("⚠️  No se cargaron datos de fight_stats (CSV no descargado)")
         
         logger.info("\n✅ Carga de tablas complementarias completada!")
         logger.info("\n📊 Tablas creadas (INDEPENDIENTES del pipeline de Scrapy):")
