@@ -26,11 +26,16 @@ CREATE TABLE IF NOT EXISTS external_fighter_tott (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Índice único en fighter_name para evitar duplicados cuando no hay IDs
--- Nota: Permitimos múltiples registros del mismo fighter si tienen diferentes IDs de pelea
+-- Índices únicos para UPSERT
+-- 1) Si hay fighter_id (lo extraemos desde URL), usarlo como clave única
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_fighter_tott_unique_fighter_id
+    ON external_fighter_tott(fighter_id)
+    WHERE fighter_id IS NOT NULL;
+
+-- 2) Si NO hay fighter_id, usar fighter_name como fallback
 CREATE UNIQUE INDEX IF NOT EXISTS idx_external_fighter_tott_unique_name 
     ON external_fighter_tott(fighter_name) 
-    WHERE fighter_id IS NULL AND fight_id IS NULL;
+    WHERE fighter_id IS NULL;
 
 -- Índices para mejorar performance (sin foreign keys)
 CREATE INDEX IF NOT EXISTS idx_external_fighter_tott_fighter_id ON external_fighter_tott(fighter_id);

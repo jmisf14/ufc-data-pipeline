@@ -10,7 +10,7 @@ on:
 jobs:
   load_external_tables:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # Aumentado para manejar descargas grandes y timeouts
+    timeout-minutes: 120  # `external_fight_stats` puede tardar; evitamos cancelación por timeout
     
     env:
       POSTGRES_HOST: ${{ secrets.SUPABASE_DB_HOST }}
