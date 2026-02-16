@@ -43,18 +43,32 @@ def connect_to_db():
     )
 
 
-def download_csv(url, name):
-    """Descarga un CSV desde GitHub"""
+def download_csv(url, name, max_retries=3, timeout=120):
+    """Descarga un CSV desde GitHub con reintentos y timeout aumentado"""
     logger.info(f"Descargando {name}...")
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        df = pd.read_csv(StringIO(response.text))
-        logger.info(f"✅ {name} descargado: {len(df)} filas, {len(df.columns)} columnas")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Error descargando {name}: {e}")
-        return None
+    
+    for attempt in range(max_retries):
+        try:
+            # Timeout aumentado para archivos grandes como fighter_tott.csv
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            df = pd.read_csv(StringIO(response.text))
+            logger.info(f"✅ {name} descargado: {len(df)} filas, {len(df.columns)} columnas")
+            return df
+        except requests.exceptions.Timeout as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 10
+                logger.warning(f"⏳ Timeout descargando {name} (intento {attempt + 1}/{max_retries}). Reintentando en {wait_time}s...")
+                import time
+                time.sleep(wait_time)
+            else:
+                logger.error(f"❌ Error descargando {name} después de {max_retries} intentos: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Error descargando {name}: {e}")
+            return None
+    
+    return None
 
 
 def analyze_fight_results(df_results):
@@ -92,21 +106,27 @@ def create_fight_results_table(conn):
     """Crea tabla EXTERNA para fight_results (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    # Buscar el archivo SQL usando rutas relativas desde el script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(os.path.dirname(script_dir))  # Sube de scripts/ a app/
+    
     sql_paths = [
-        "stat_scrape/sql/create_fight_results_table.sql",
-        "app/stat_scrape/stat_scrape/sql/create_fight_results_table.sql",
+        os.path.join(base_dir, "stat_scrape", "stat_scrape", "sql", "create_fight_results_table.sql"),
+        os.path.join(script_dir, "..", "stat_scrape", "stat_scrape", "sql", "create_fight_results_table.sql"),
+        "stat_scrape/stat_scrape/sql/create_fight_results_table.sql",
         "../stat_scrape/stat_scrape/sql/create_fight_results_table.sql"
     ]
     
     sql_content = None
     for path in sql_paths:
-        if os.path.exists(path):
-            sql_content = open(path, "r").read()
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            sql_content = open(abs_path, "r").read()
+            logger.debug(f"✅ Archivo SQL encontrado en: {abs_path}")
             break
     
     if not sql_content:
-        raise FileNotFoundError(f"No se encontró create_fight_results_table.sql en: {sql_paths}")
+        raise FileNotFoundError(f"No se encontró create_fight_results_table.sql. Buscado en: {sql_paths}")
     
     cursor.execute(sql_content)
     conn.commit()
@@ -117,25 +137,29 @@ def create_fighter_tott_table(conn):
     """Crea tabla EXTERNA para fighter_tott (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    # Buscar el archivo SQL usando rutas relativas desde el script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(os.path.dirname(script_dir))  # Sube de scripts/ a app/
+    
     sql_paths = [
-        "stat_scrape/sql/create_fighter_tott_table.sql",
-        "app/stat_scrape/stat_scrape/sql/create_fighter_tott_table.sql",
+        os.path.join(base_dir, "stat_scrape", "stat_scrape", "sql", "create_fighter_tott_table.sql"),
+        os.path.join(script_dir, "..", "stat_scrape", "stat_scrape", "sql", "create_fighter_tott_table.sql"),
+        "stat_scrape/stat_scrape/sql/create_fighter_tott_table.sql",
         "../stat_scrape/stat_scrape/sql/create_fighter_tott_table.sql"
     ]
     
     sql_content = None
     for path in sql_paths:
-        if os.path.exists(path):
-            sql_content = open(path, "r").read()
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            sql_content = open(abs_path, "r").read()
+            logger.debug(f"✅ Archivo SQL encontrado en: {abs_path}")
             break
     
     if not sql_content:
-        raise FileNotFoundError(f"No se encontró create_fighter_tott_table.sql en: {sql_paths}")
+        raise FileNotFoundError(f"No se encontró create_fighter_tott_table.sql. Buscado en: {sql_paths}")
     
-    create_table_sql = sql_content
-    
-    cursor.execute(create_table_sql)
+    cursor.execute(sql_content)
     conn.commit()
     logger.info("✅ Tabla external_fighter_tott creada/verificada (complementaria, independiente)")
 
@@ -144,25 +168,29 @@ def create_fight_stats_table(conn):
     """Crea tabla EXTERNA para fight_stats (complementaria, no integrada)"""
     cursor = conn.cursor()
     
-    # Buscar el archivo SQL (funciona desde app/ o desde raíz)
+    # Buscar el archivo SQL usando rutas relativas desde el script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(os.path.dirname(script_dir))  # Sube de scripts/ a app/
+    
     sql_paths = [
-        "stat_scrape/sql/create_fight_stats_table.sql",
-        "app/stat_scrape/stat_scrape/sql/create_fight_stats_table.sql",
+        os.path.join(base_dir, "stat_scrape", "stat_scrape", "sql", "create_fight_stats_table.sql"),
+        os.path.join(script_dir, "..", "stat_scrape", "stat_scrape", "sql", "create_fight_stats_table.sql"),
+        "stat_scrape/stat_scrape/sql/create_fight_stats_table.sql",
         "../stat_scrape/stat_scrape/sql/create_fight_stats_table.sql"
     ]
     
     sql_content = None
     for path in sql_paths:
-        if os.path.exists(path):
-            sql_content = open(path, "r").read()
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            sql_content = open(abs_path, "r").read()
+            logger.debug(f"✅ Archivo SQL encontrado en: {abs_path}")
             break
     
     if not sql_content:
-        raise FileNotFoundError(f"No se encontró create_fight_stats_table.sql en: {sql_paths}")
+        raise FileNotFoundError(f"No se encontró create_fight_stats_table.sql. Buscado en: {sql_paths}")
     
-    create_table_sql = sql_content
-    
-    cursor.execute(create_table_sql)
+    cursor.execute(sql_content)
     conn.commit()
     logger.info("✅ Tabla external_fight_stats creada/verificada (complementaria, independiente)")
 
@@ -568,19 +596,33 @@ def main():
     conn = connect_to_db()
     
     try:
-        # Crear tablas
-        if df_results is not None:
+        # Crear tablas (siempre intentar crear, incluso si algunos CSVs fallaron)
+        try:
             create_fight_results_table(conn)
-            load_fight_results(df_results, conn)
+            if df_results is not None:
+                load_fight_results(df_results, conn)
+            else:
+                logger.warning("⚠️  No se cargaron datos de fight_results (CSV no descargado)")
+        except Exception as e:
+            logger.error(f"❌ Error procesando fight_results: {e}")
         
-        if df_tott is not None:
+        try:
             create_fighter_tott_table(conn)
-            load_fighter_tott(df_tott, conn)
+            if df_tott is not None:
+                load_fighter_tott(df_tott, conn)
+            else:
+                logger.warning("⚠️  No se cargaron datos de fighter_tott (CSV no descargado)")
+        except Exception as e:
+            logger.error(f"❌ Error procesando fighter_tott: {e}")
         
-        # Cargar fight_stats (estadísticas por round)
-        if df_stats is not None:
+        try:
             create_fight_stats_table(conn)
-            load_fight_stats(df_stats, conn)
+            if df_stats is not None:
+                load_fight_stats(df_stats, conn)
+            else:
+                logger.warning("⚠️  No se cargaron datos de fight_stats (CSV no descargado)")
+        except Exception as e:
+            logger.error(f"❌ Error procesando fight_stats: {e}")
         
         logger.info("\n✅ Carga de tablas complementarias completada!")
         logger.info("\n📊 Tablas creadas (INDEPENDIENTES del pipeline de Scrapy):")

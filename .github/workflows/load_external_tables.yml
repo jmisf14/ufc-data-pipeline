@@ -10,7 +10,7 @@ on:
 jobs:
   load_external_tables:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # Más rápido que el scraper, solo descarga CSVs y carga datos
+    timeout-minutes: 45  # Aumentado para manejar descargas grandes y timeouts
     
     env:
       POSTGRES_HOST: ${{ secrets.SUPABASE_DB_HOST }}
