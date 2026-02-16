@@ -23,9 +23,14 @@ CREATE TABLE IF NOT EXISTS external_fighter_tott (
     takedown_defense INTEGER,
     submission_avg DECIMAL(10,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(fighter_id, fight_id)  -- Un fighter solo puede tener un registro por pelea
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Índice único en fighter_name para evitar duplicados cuando no hay IDs
+-- Nota: Permitimos múltiples registros del mismo fighter si tienen diferentes IDs de pelea
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_fighter_tott_unique_name 
+    ON external_fighter_tott(fighter_name) 
+    WHERE fighter_id IS NULL AND fight_id IS NULL;
 
 -- Índices para mejorar performance (sin foreign keys)
 CREATE INDEX IF NOT EXISTS idx_external_fighter_tott_fighter_id ON external_fighter_tott(fighter_id);

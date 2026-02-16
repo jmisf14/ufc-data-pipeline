@@ -13,6 +13,7 @@ usando IDs comunes, pero sin foreign keys que puedan interferir.
 
 import pandas as pd
 import psycopg2
+import psycopg2.errors
 import os
 import requests
 from io import StringIO
@@ -261,27 +262,10 @@ def load_fighter_tott(df_tott, conn):
     
     cursor = conn.cursor()
     
-    # Mapeo flexible de columnas (normalizar nombres)
-    column_mapping = {
-        'fighter_id': ['fighter_id', 'fighterid', 'id'],
-        'fight_id': ['fight_id', 'fightid', 'fight_id'],
-        'fighter_name': ['fighter_name', 'name', 'fighter', 'fighter_name'],
-        'age': ['age', 'age_at_fight'],
-        'height': ['height', 'ht'],
-        'weight': ['weight', 'wt', 'weight_at_fight'],
-        'reach': ['reach'],
-        'stance': ['stance'],
-        'dob': ['dob', 'date_of_birth', 'birthdate'],
-        'sig_str_landed_per_min': ['sig_str_landed_per_min', 'sig_str_landed', 'ss_landed_per_min'],
-        'sig_str_accuracy': ['sig_str_accuracy', 'ss_accuracy', 'striking_accuracy'],
-        'sig_str_absorbed_per_min': ['sig_str_absorbed_per_min', 'sig_str_absorbed', 'ss_absorbed_per_min'],
-        'sig_str_defense': ['sig_str_defense', 'ss_defense', 'striking_defense'],
-        'takedown_avg': ['takedown_avg', 'td_avg', 'takedown_average'],
-        'takedown_accuracy': ['takedown_accuracy', 'td_accuracy'],
-        'takedown_defense': ['takedown_defense', 'td_defense'],
-        'submission_avg': ['submission_avg', 'sub_avg', 'submission_average']
-    }
+    logger.info(f"📋 Columnas disponibles en CSV: {list(df_tott.columns)}")
     
+    # Mapeo según las columnas reales del CSV
+    # El CSV tiene: FIGHTER, HEIGHT, WEIGHT, REACH, STANCE, DOB, URL
     def find_column(df, possible_names):
         """Encuentra una columna por posibles nombres"""
         for name in possible_names:
@@ -289,23 +273,33 @@ def load_fighter_tott(df_tott, conn):
                 return name
         return None
     
-    # Construir mapeo real
-    actual_mapping = {}
-    for target_col, possible_names in column_mapping.items():
-        found_col = find_column(df_tott, possible_names)
-        if found_col:
-            actual_mapping[target_col] = found_col
-        else:
-            logger.warning(f"⚠️  No se encontró columna para {target_col}")
+    # Mapear columnas disponibles
+    fighter_name_col = find_column(df_tott, ['FIGHTER', 'fighter_name', 'name', 'fighter'])
+    height_col = find_column(df_tott, ['HEIGHT', 'height', 'ht'])
+    weight_col = find_column(df_tott, ['WEIGHT', 'weight', 'wt'])
+    reach_col = find_column(df_tott, ['REACH', 'reach'])
+    stance_col = find_column(df_tott, ['STANCE', 'stance'])
+    dob_col = find_column(df_tott, ['DOB', 'dob', 'date_of_birth', 'birthdate'])
+    url_col = find_column(df_tott, ['URL', 'url', 'link'])
     
-    logger.info(f"📋 Mapeo de columnas: {actual_mapping}")
+    logger.info(f"📋 Mapeo de columnas encontradas:")
+    logger.info(f"   fighter_name: {fighter_name_col}")
+    logger.info(f"   height: {height_col}")
+    logger.info(f"   weight: {weight_col}")
+    logger.info(f"   reach: {reach_col}")
+    logger.info(f"   stance: {stance_col}")
+    logger.info(f"   dob: {dob_col}")
+    logger.info(f"   url: {url_col}")
+    
+    # El CSV no tiene fighter_id ni fight_id, así que los extraemos de la URL o los dejamos NULL
+    # Tampoco tiene estadísticas detalladas, solo datos físicos básicos
     
     insert_sql = """
     INSERT INTO external_fighter_tott 
     (fighter_id, fight_id, fighter_name, age, height, weight, reach, stance, dob,
      sig_str_landed_per_min, sig_str_accuracy, sig_str_absorbed_per_min, 
      sig_str_defense, takedown_avg, takedown_accuracy, takedown_defense, submission_avg)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (fighter_id, fight_id) DO UPDATE SET
         fighter_name = EXCLUDED.fighter_name,
         age = EXCLUDED.age,
@@ -327,54 +321,132 @@ def load_fighter_tott(df_tott, conn):
     
     records = []
     for _, row in df_tott.iterrows():
-        def get_value(col_name):
-            source_col = actual_mapping.get(col_name)
-            if source_col and source_col in df_tott.columns:
-                val = row[source_col]
-                # Convertir tipos apropiados
-                if col_name in ['age', 'sig_str_accuracy', 'sig_str_defense', 
-                               'takedown_accuracy', 'takedown_defense']:
-                    try:
-                        return int(val) if pd.notna(val) else None
-                    except:
-                        return None
-                elif col_name in ['sig_str_landed_per_min', 'sig_str_absorbed_per_min',
-                                 'takedown_avg', 'submission_avg']:
-                    try:
-                        return float(val) if pd.notna(val) else None
-                    except:
-                        return None
-                return val if pd.notna(val) else None
-            return None
+        # Extraer fighter_id de la URL si existe
+        fighter_id = None
+        fight_id = None
+        if url_col and pd.notna(row.get(url_col)):
+            url = str(row[url_col])
+            # Intentar extraer ID de la URL (formato: .../fighter-details/ID o .../fight-details/ID)
+            if 'fighter-details' in url:
+                fighter_id = url.split('/')[-1] if url.endswith('/') else url.split('/')[-1]
+            elif 'fight-details' in url:
+                fight_id = url.split('/')[-1] if url.endswith('/') else url.split('/')[-1]
+        
+        # Obtener valores de las columnas disponibles
+        fighter_name = row.get(fighter_name_col) if fighter_name_col else None
+        height = row.get(height_col) if height_col else None
+        weight = row.get(weight_col) if weight_col else None
+        reach = row.get(reach_col) if reach_col else None
+        stance = row.get(stance_col) if stance_col else None
+        
+        # Parsear DOB si existe
+        dob = None
+        if dob_col and pd.notna(row.get(dob_col)):
+            dob_str = str(row[dob_col]).strip()
+            if dob_str and dob_str != '--' and dob_str != '':
+                try:
+                    # Intentar parsear diferentes formatos de fecha
+                    from datetime import datetime
+                    for fmt in ['%b %d, %Y', '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y']:
+                        try:
+                            dob = datetime.strptime(dob_str, fmt).date()
+                            break
+                        except:
+                            continue
+                except:
+                    dob = None
+        
+        # Limpiar valores None y strings vacíos
+        def clean_value(val):
+            if pd.isna(val) or val == '--' or val == '':
+                return None
+            return str(val).strip() if val else None
         
         records.append((
-            get_value('fighter_id'),
-            get_value('fight_id'),
-            get_value('fighter_name'),
-            get_value('age'),
-            get_value('height'),
-            get_value('weight'),
-            get_value('reach'),
-            get_value('stance'),
-            get_value('dob'),
-            get_value('sig_str_landed_per_min'),
-            get_value('sig_str_accuracy'),
-            get_value('sig_str_absorbed_per_min'),
-            get_value('sig_str_defense'),
-            get_value('takedown_avg'),
-            get_value('takedown_accuracy'),
-            get_value('takedown_defense'),
-            get_value('submission_avg')
+            fighter_id,  # Puede ser None si no se puede extraer de URL
+            fight_id,    # Puede ser None si no se puede extraer de URL
+            clean_value(fighter_name),
+            None,  # age - no disponible en este CSV
+            clean_value(height),
+            clean_value(weight),
+            clean_value(reach),
+            clean_value(stance),
+            dob,
+            None,  # sig_str_landed_per_min - no disponible
+            None,  # sig_str_accuracy - no disponible
+            None,  # sig_str_absorbed_per_min - no disponible
+            None,  # sig_str_defense - no disponible
+            None,  # takedown_avg - no disponible
+            None,  # takedown_accuracy - no disponible
+            None,  # takedown_defense - no disponible
+            None   # submission_avg - no disponible
         ))
     
     try:
-        cursor.executemany(insert_sql, records)
+        # Insertar registros, manejando duplicados
+        # Como el CSV básico no tiene IDs únicos, usamos fighter_name como identificador
+        inserted_count = 0
+        skipped_count = 0
+        
+        for record in records:
+            fighter_id, fight_id, fighter_name = record[0], record[1], record[2]
+            
+            # Si no hay fighter_name, saltar
+            if not fighter_name:
+                skipped_count += 1
+                continue
+            
+            # Intentar insertar
+            insert_sql = """
+            INSERT INTO external_fighter_tott 
+            (fighter_id, fight_id, fighter_name, age, height, weight, reach, stance, dob,
+             sig_str_landed_per_min, sig_str_accuracy, sig_str_absorbed_per_min, 
+             sig_str_defense, takedown_avg, takedown_accuracy, takedown_defense, submission_avg)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            try:
+                cursor.execute(insert_sql, record)
+                inserted_count += 1
+            except (psycopg2.IntegrityError, psycopg2.errors.UniqueViolation) as e:
+                # Duplicado, actualizar en su lugar
+                try:
+                    update_sql = """
+                    UPDATE external_fighter_tott SET
+                        height = %s,
+                        weight = %s,
+                        reach = %s,
+                        stance = %s,
+                        dob = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE fighter_name = %s AND (fighter_id IS NULL OR fighter_id = '') AND (fight_id IS NULL OR fight_id = '')
+                    """
+                    cursor.execute(update_sql, (
+                        record[4],  # height
+                        record[5],  # weight
+                        record[6],  # reach
+                        record[7],  # stance
+                        record[8],  # dob
+                        fighter_name
+                    ))
+                except Exception as update_error:
+                    # Si el UPDATE también falla, simplemente ignorar el duplicado
+                    logger.debug(f"Duplicado ignorado para {fighter_name}: {update_error}")
+                    skipped_count += 1
+            except Exception as e:
+                logger.debug(f"Error insertando registro: {e}")
+                skipped_count += 1
+        
+        conn.commit()
+        logger.info(f"✅ {inserted_count} registros insertados, {skipped_count} omitidos en external_fighter_tott")
         conn.commit()
         logger.info(f"✅ {len(records)} registros cargados/actualizados en external_fighter_tott")
     except Exception as e:
         conn.rollback()
         logger.error(f"❌ Error cargando fighter_tott: {e}")
         logger.error(f"   Columnas disponibles: {list(df_tott.columns)}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
 
 
