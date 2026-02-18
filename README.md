@@ -5,11 +5,11 @@ This repository powers my capstone **UFC analytics + prediction** project by kee
 ### What this project does
 
 - **Scrapes** UFC events, fights, and fighters from `ufcstats.com`
-- **Stores** the data in Postgres (hosted on **Supabase** for the capstone)
-- **Refreshes automatically** on a weekly schedule (GitHub Actions) so new events get appended
+- **Stores** the data in Postgres (hosted on **Supabase**)
+- **Refreshes automatically** on a weekly schedule so new events get appended. 
 - **Enables analytics/ML workflows**: the tables can be queried directly or exported to CSV for feature engineering and model training
 
-### How it works (high level)
+### How it works?
 
 - A Scrapy spider (`ufcstatspider`) crawls: **events → fight cards → fight details → fighter pages**
 - A pipeline writes to Postgres:
@@ -20,11 +20,11 @@ This repository powers my capstone **UFC analytics + prediction** project by kee
 
 ### Core tables
 
-- **`events`**: event metadata (name, date, location, link)
-- **`fights`**: fight outcomes + detailed striking/grappling stats
-- **`fighters`**: fighter bios, records, and career rate stats
+- **`events`**: event metadata (name, date, location, link). 
+- **`fights`**: fight outcomes + detailed striking/grappling stats. 
+- **`fighters`**: fighter bios, records, and career rate stats. 
 
 ### Data platform & automation
 
-- **Database**: Supabase Postgres
-- **Scheduler**: GitHub Actions (weekly run)
+- **Database**: Supabase Postgres. 
+- **Scheduler**: GitHub Actions (weekly run, every Monday at 20.00 CET. 
