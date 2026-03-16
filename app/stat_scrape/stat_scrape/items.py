@@ -81,6 +81,25 @@ class Fight(scrapy.Item):
 
 
 @dataclass(frozen=True)
+class UpcomingEvent(scrapy.Item):
+    id: Optional[str] = field(default=None)
+    name: Optional[str] = field(default=None)
+    date: Optional[datetime] = field(default=None)
+    location: Optional[str] = field(default=None)
+    link: Optional[str] = field(default=None)
+
+
+@dataclass(frozen=True)
+class UpcomingFight(scrapy.Item):
+    event_id: Optional[str] = field(default=None)
+    red_name: Optional[str] = field(default=None)
+    blue_name: Optional[str] = field(default=None)
+    red_link: Optional[str] = field(default=None)
+    blue_link: Optional[str] = field(default=None)
+    weight_class: Optional[str] = field(default=None)
+
+
+@dataclass(frozen=True)
 class Fighter(scrapy.Item):
     id: Optional[str] = field(default=None)
     first_name: Optional[str] = field(default=None)
