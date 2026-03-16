@@ -71,28 +71,17 @@ class UpcomingEventsSpider(Spider):
             'b-fight-details__table_type_event-details '
             'js-fight-table"]//tbody//tr'
         ):
-            # Get fighter names and links
-            fighter_links = row.xpath(
-                'td[@class="b-fight-details__table-col '
-                'b-fight-details__table-col_style_align-top"]'
-                '//a/@href'
-            ).getall()
-
+            # Get all fighter links and names from the row
+            # The FIGHTER column contains <a> tags with fighter names
+            fighter_links = row.xpath('.//td[2]//a/@href').getall()
             fighter_names = [
                 " ".join(name.split())
-                for name in row.xpath(
-                    'td[@class="b-fight-details__table-col '
-                    'b-fight-details__table-col_style_align-top"]'
-                    '//a/text()'
-                ).getall()
+                for name in row.xpath('.//td[2]//a/text()').getall()
                 if name.strip()
             ]
 
-            # Get weight class
-            weight_class_raw = row.xpath(
-                'td[@class="b-fight-details__table-col '
-                'l-page_align_left"]//text()'
-            ).getall()
+            # Weight class is in its own column (column 7 in the table)
+            weight_class_raw = row.xpath('.//td[7]//text()').getall()
             weight_class = " ".join(
                 [w.strip() for w in weight_class_raw if w.strip()]
             ) if weight_class_raw else None
