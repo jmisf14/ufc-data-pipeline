@@ -23,26 +23,50 @@ class UpcomingEventsSpider(Spider):
         source_date_format = "%B %d, %Y"
         logging.info("Parsing upcoming events...")
 
-        for row in response.xpath(
+        all_rows = response.xpath(
             '//*[@class="b-statistics__table-events"]//tbody//tr'
-        )[2:]:
-            content = row.xpath("td[1]//text() | td[1]//@href").getall()
-            # Skip rows that don't have enough data (e.g. empty rows)
-            if len(content) < 6:
+        )
+
+        for row in all_rows:
+            # Extract the event link and text from the first column
+            event_link = row.xpath('td[1]//a/@href').get()
+            # Skip rows without an event link (header rows, spacers)
+            if not event_link:
                 continue
 
-            event_link = content[2]
-            event_id = event_link.split("/")[-1]
-            event_name = " ".join(content[3].split())
-            try:
-                event_date = datetime.strptime(
-                    " ".join(content[5].split()), source_date_format
+            event_name_raw = row.xpath('td[1]//a//text()').getall()
+            event_name = " ".join(
+                [t.strip() for t in event_name_raw if t.strip()]
+            )
+            if not event_name:
+                continue
+
+            # Extract date — it's in a <span> or loose text after the link
+            date_texts = [
+                t.strip() for t in row.xpath('td[1]//text()').getall()
+                if t.strip()
+            ]
+            event_date = None
+            for text in date_texts:
+                try:
+                    event_date = datetime.strptime(text, source_date_format)
+                    break
+                except ValueError:
+                    continue
+
+            if event_date is None:
+                logging.warning(
+                    f"Could not parse date for event: {event_name}"
                 )
-            except (ValueError, IndexError):
-                logging.warning(f"Could not parse date for event: {event_name}")
                 continue
 
-            location = " ".join(row.xpath("td[2]//text()").getall()[0].split())
+            event_id = event_link.split("/")[-1]
+
+            # Extract location from second column
+            location_texts = row.xpath('td[2]//text()').getall()
+            location = " ".join(
+                [t.strip() for t in location_texts if t.strip()]
+            ) if location_texts else None
 
             event = UpcomingEvent(
                 id=event_id,
