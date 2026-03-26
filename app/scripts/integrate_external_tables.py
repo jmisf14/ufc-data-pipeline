@@ -236,10 +236,10 @@ def load_fight_results(df_results, conn):
     df = df.where(pd.notna(df), None)
 
     # Snapshot completo
-    cursor.execute("TRUNCATE TABLE external_fight_results;")
+    cursor.execute("TRUNCATE TABLE public.external_fight_results;")
 
     insert_sql = """
-        INSERT INTO external_fight_results
+        INSERT INTO public.external_fight_results
         (event, bout, outcome, weightclass, method,
          round, time, time_format, referee, details, url)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -281,10 +281,10 @@ def load_fighter_tott(df_tott, conn):
     df = df.where(pd.notna(df), None)
 
     # Snapshot completo
-    cursor.execute("TRUNCATE TABLE external_fighter_tott;")
+    cursor.execute("TRUNCATE TABLE public.external_fighter_tott;")
 
     insert_sql = """
-        INSERT INTO external_fighter_tott
+        INSERT INTO public.external_fighter_tott
         (fighter, height, weight, reach, stance, dob, url)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
     """
@@ -394,10 +394,10 @@ def load_fight_stats(df_stats, conn):
     df = df.where(pd.notna(df), None)
 
     # Snapshot completo
-    cursor.execute("TRUNCATE TABLE external_fight_stats;")
+    cursor.execute("TRUNCATE TABLE public.external_fight_stats;")
 
     insert_sql = """
-        INSERT INTO external_fight_stats
+        INSERT INTO public.external_fight_stats
         (event, bout, round, fighter, kd,
          sig_str, sig_str_pct, total_str, td, td_pct,
          sub_att, rev, ctrl, head, body, leg, distance, clinch, ground)
@@ -437,6 +437,12 @@ def main():
     
     # Conectar a BD
     conn = connect_to_db()
+    
+    # Asegura que el loader encuentre las tablas en el esquema `public`.
+    # En Supabase, el search_path puede no incluir `public` dependiendo del rol.
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO public;")
+    conn.commit()
     
     try:
         # IMPORTANTE: asumimos que las tablas ya existen en Supabase.
