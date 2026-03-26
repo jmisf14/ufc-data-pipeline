@@ -36,14 +36,53 @@ CSV_URLS = {
 
 def connect_to_db():
     """Conecta a la base de datos Supabase"""
-    load_dotenv()
-    return psycopg2.connect(
-        host=os.environ.get("POSTGRES_HOST"),
-        user=os.environ.get("POSTGRES_USER"),
-        password=os.environ.get("POSTGRES_PASSWORD"),
-        dbname=os.environ.get("POSTGRES_DB"),
-        port=os.environ.get("POSTGRES_PORT"),
-    )
+    # Carga variables desde `.env`.
+    # Este script se suele ejecutar desde `app/`, pero también permitimos que el `.env`
+    # viva en la raíz del repo.
+    repo_root = Path(__file__).resolve().parents[2]
+    app_dir = Path(__file__).resolve().parents[1]
+    load_dotenv(dotenv_path=repo_root / ".env")
+    load_dotenv(dotenv_path=app_dir / ".env")
+
+    host = os.environ.get("POSTGRES_HOST")
+    user = os.environ.get("POSTGRES_USER")
+    password = os.environ.get("POSTGRES_PASSWORD")
+    dbname = os.environ.get("POSTGRES_DB")
+    port = os.environ.get("POSTGRES_PORT")
+    sslmode = os.environ.get("PGSSLMODE")  # Supabase: usually `require`
+
+    missing = [k for k, v in {
+        "POSTGRES_HOST": host,
+        "POSTGRES_USER": user,
+        "POSTGRES_PASSWORD": password,
+        "POSTGRES_DB": dbname,
+        "POSTGRES_PORT": port,
+    }.items() if not v]
+
+    if missing:
+        raise RuntimeError(
+            "Missing DB env vars. Set them via your .env or export them:\n"
+            + "\n".join(f"- {m}" for m in missing)
+        )
+
+    # `db` usually only exists inside Docker compose networks.
+    if host.strip().lower() == "db":
+        raise RuntimeError(
+            "POSTGRES_HOST is set to 'db'. That host name is only valid inside Docker.\n"
+            "For Supabase, set POSTGRES_HOST to your Supabase DB host (e.g. *.supabase.co)."
+        )
+
+    kwargs = {
+        "host": host,
+        "user": user,
+        "password": password,
+        "dbname": dbname,
+        "port": port,
+    }
+    if sslmode:
+        kwargs["sslmode"] = sslmode
+
+    return psycopg2.connect(**kwargs)
 
 
 def download_csv(url, name, max_retries=3, timeout=120):
@@ -199,6 +238,85 @@ def create_fight_stats_table(conn):
     cursor.execute(sql_content)
     conn.commit()
     logger.info("✅ Tabla external_fight_stats creada/verificada (complementaria, independiente)")
+
+
+def ensure_external_fight_results_table(conn):
+    """Asegura que `public.external_fight_results` exista con columnas compatibles con este loader."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS public.external_fight_results (
+            id SERIAL PRIMARY KEY,
+            event TEXT,
+            bout TEXT,
+            outcome TEXT,
+            weightclass TEXT,
+            method TEXT,
+            round TEXT,
+            time TEXT,
+            time_format TEXT,
+            referee TEXT,
+            details TEXT,
+            url TEXT UNIQUE
+        );
+        """
+    )
+    conn.commit()
+    cursor.close()
+
+
+def ensure_external_fighter_tott_table(conn):
+    """Asegura que `public.external_fighter_tott` exista con columnas compatibles con este loader."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS public.external_fighter_tott (
+            id SERIAL PRIMARY KEY,
+            fighter TEXT,
+            height TEXT,
+            weight TEXT,
+            reach TEXT,
+            stance TEXT,
+            dob TEXT,
+            url TEXT UNIQUE
+        );
+        """
+    )
+    conn.commit()
+    cursor.close()
+
+
+def ensure_external_fight_stats_table(conn):
+    """Asegura que `public.external_fight_stats` exista con columnas compatibles con este loader."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS public.external_fight_stats (
+            id SERIAL PRIMARY KEY,
+            event TEXT,
+            bout TEXT,
+            round TEXT,
+            fighter TEXT,
+            kd TEXT,
+            sig_str TEXT,
+            sig_str_pct TEXT,
+            total_str TEXT,
+            td TEXT,
+            td_pct TEXT,
+            sub_att TEXT,
+            rev TEXT,
+            ctrl TEXT,
+            head TEXT,
+            body TEXT,
+            leg TEXT,
+            distance TEXT,
+            clinch TEXT,
+            ground TEXT
+        );
+        """
+    )
+    conn.commit()
+    cursor.close()
 
 
 def load_fight_results(df_results, conn):
@@ -445,6 +563,11 @@ def main():
     conn.commit()
     
     try:
+        # Asegura que las tablas existan con el esquema compatible con los INSERT del loader.
+        ensure_external_fight_results_table(conn)
+        ensure_external_fighter_tott_table(conn)
+        ensure_external_fight_stats_table(conn)
+
         # IMPORTANTE: asumimos que las tablas ya existen en Supabase.
         # NO tocamos el esquema de la base de datos, solo hacemos snapshot de los CSV.
 
