@@ -3,7 +3,7 @@ name: UFCStats scrape to Supabase
 on:
   workflow_dispatch:
   schedule:
-    # Every Monday 12:00 UTC (example)
+    # Every Monday 20:00 UTC
     - cron: "0 20 * * 1"
 
 jobs:
@@ -27,9 +27,9 @@ jobs:
           cache-dependency-path: "app/requirements.txt"
       - run: pip install -r app/requirements.txt
       - name: Run Scrapy crawl (completed events)
-        working-directory: app/stat_scrape
+        working-directory: app/ufcstats_scrape
         run: scrapy crawl ufcstatspider
       - name: Run Scrapy crawl (upcoming events)
-        working-directory: app/stat_scrape
+        working-directory: app/ufcstats_scrape
         run: scrapy crawl upcoming
 

@@ -1,8 +1,0 @@
-#!/bin/sh
-'''exec' "/Users/josemiguel/Full-Stack-Developer/resources/images/Capstone Project/UFCstats-Data-Pipeline/app/.venv310/bin/python3.10" "$0" "$@"
-' '''
-import sys
-from charset_normalizer.cli.normalizer import cli_detect
-if __name__ == '__main__':
-    sys.argv[0] = sys.argv[0].removesuffix('.exe')
-    sys.exit(cli_detect())
