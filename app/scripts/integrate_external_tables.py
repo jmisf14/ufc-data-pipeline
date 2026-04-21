@@ -315,7 +315,7 @@ def ensure_external_fight_stats_table(conn):
         );
         """
     )
-    # Add unique constraint for incremental loads if it doesn't exist
+    # Add unique constraint for incremental loads: deduplicate existing data first
     cursor.execute(
         """
         DO $$
@@ -323,6 +323,15 @@ def ensure_external_fight_stats_table(conn):
             IF NOT EXISTS (
                 SELECT 1 FROM pg_constraint WHERE conname = 'uq_fight_stats_event_bout_round_fighter'
             ) THEN
+                -- Remove duplicates keeping the row with the lowest id
+                DELETE FROM public.external_fight_stats a
+                USING public.external_fight_stats b
+                WHERE a.id > b.id
+                  AND a.event = b.event
+                  AND a.bout = b.bout
+                  AND a.round = b.round
+                  AND a.fighter = b.fighter;
+
                 ALTER TABLE public.external_fight_stats
                 ADD CONSTRAINT uq_fight_stats_event_bout_round_fighter
                 UNIQUE (event, bout, round, fighter);
