@@ -315,18 +315,32 @@ def ensure_external_fight_stats_table(conn):
         );
         """
     )
+    # Add unique constraint for incremental loads if it doesn't exist
+    cursor.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_fight_stats_event_bout_round_fighter'
+            ) THEN
+                ALTER TABLE public.external_fight_stats
+                ADD CONSTRAINT uq_fight_stats_event_bout_round_fighter
+                UNIQUE (event, bout, round, fighter);
+            END IF;
+        END $$;
+        """
+    )
     conn.commit()
     cursor.close()
 
 
 def load_fight_results(df_results, conn):
     """
-    Carga `ufc_fight_results.csv` en la tabla `external_fight_results`
-    haciendo un snapshot completo (TRUNCATE + INSERT).
-    No se inventan columnas ni se hace parsing complejo: se respeta el CSV.
+    Carga `ufc_fight_results.csv` en la tabla `external_fight_results`.
+    Solo inserta filas nuevas (por URL único). Skips duplicados.
     """
     if df_results is None or df_results.empty:
-        logger.warning("⚠️  No hay datos de fight_results para cargar")
+        logger.warning("No hay datos de fight_results para cargar")
         return
 
     required_cols = [
@@ -344,45 +358,41 @@ def load_fight_results(df_results, conn):
     ]
     missing = [c for c in required_cols if c not in df_results.columns]
     if missing:
-        logger.error(f"❌ Columnas faltantes en fight_results CSV: {missing}")
+        logger.error(f"Columnas faltantes en fight_results CSV: {missing}")
         return
 
     cursor = conn.cursor()
 
-    # Extraemos columnas en el mismo orden que la tabla
     df = df_results[required_cols].copy()
     df = df.where(pd.notna(df), None)
-
-    # Snapshot completo
-    cursor.execute("TRUNCATE TABLE public.external_fight_results;")
 
     insert_sql = """
         INSERT INTO public.external_fight_results
         (event, bout, outcome, weightclass, method,
          round, time, time_format, referee, details, url)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (url) DO NOTHING
     """
 
     records = list(df.itertuples(index=False, name=None))
 
     try:
-        cursor.executemany(insert_sql, records)
+        psycopg2.extras.execute_batch(cursor, insert_sql, records, page_size=1000)
         conn.commit()
-        logger.info(f"✅ {len(records)} filas cargadas en external_fight_results")
+        logger.info(f"{len(records)} filas procesadas en external_fight_results (nuevas insertadas, duplicados ignorados)")
     except Exception as e:
         conn.rollback()
-        logger.error(f"❌ Error cargando fight_results: {e}")
+        logger.error(f"Error cargando fight_results: {e}")
         raise
 
 
 def load_fighter_tott(df_tott, conn):
     """
-    Carga `ufc_fighter_tott.csv` en la tabla `external_fighter_tott`
-    haciendo un snapshot completo (TRUNCATE + INSERT).
-    Solo usa las columnas que existen realmente en el CSV.
+    Carga `ufc_fighter_tott.csv` en la tabla `external_fighter_tott`.
+    Solo inserta filas nuevas (por URL único). Skips duplicados.
     """
     if df_tott is None or df_tott.empty:
-        logger.warning("⚠️  No hay datos de fighter_tott para cargar")
+        logger.warning("No hay datos de fighter_tott para cargar")
         return
 
     cursor = conn.cursor()
@@ -390,32 +400,28 @@ def load_fighter_tott(df_tott, conn):
     required_cols = ["FIGHTER", "HEIGHT", "WEIGHT", "REACH", "STANCE", "DOB", "URL"]
     missing = [c for c in required_cols if c not in df_tott.columns]
     if missing:
-        logger.error(f"❌ Columnas faltantes en fighter_tott CSV: {missing}")
+        logger.error(f"Columnas faltantes en fighter_tott CSV: {missing}")
         return
-
-    logger.info(f"📋 Columnas disponibles en CSV fighter_tott: {list(df_tott.columns)}")
 
     df = df_tott[required_cols].copy()
     df = df.where(pd.notna(df), None)
-
-    # Snapshot completo
-    cursor.execute("TRUNCATE TABLE public.external_fighter_tott;")
 
     insert_sql = """
         INSERT INTO public.external_fighter_tott
         (fighter, height, weight, reach, stance, dob, url)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (url) DO NOTHING
     """
 
     records = list(df.itertuples(index=False, name=None))
 
     try:
-        cursor.executemany(insert_sql, records)
+        psycopg2.extras.execute_batch(cursor, insert_sql, records, page_size=1000)
         conn.commit()
-        logger.info(f"✅ {len(records)} filas cargadas en external_fighter_tott")
+        logger.info(f"{len(records)} filas procesadas en external_fighter_tott (nuevas insertadas, duplicados ignorados)")
     except Exception as e:
         conn.rollback()
-        logger.error(f"❌ Error cargando fighter_tott: {e}")
+        logger.error(f"Error cargando fighter_tott: {e}")
         raise
 
 
@@ -472,12 +478,11 @@ def extract_round_number(round_str):
 
 def load_fight_stats(df_stats, conn):
     """
-    Carga `ufc_fight_stats.csv` en la tabla `external_fight_stats`
-    haciendo un snapshot completo (TRUNCATE + INSERT).
-    No se parsean porcentajes ni fracciones; se guarda el texto tal cual.
+    Carga `ufc_fight_stats.csv` en la tabla `external_fight_stats`.
+    Solo inserta filas nuevas (por event+bout+round+fighter único). Skips duplicados.
     """
     if df_stats is None or df_stats.empty:
-        logger.warning("⚠️  No hay datos de fight_stats para cargar")
+        logger.warning("No hay datos de fight_stats para cargar")
         return
 
     required_cols = [
@@ -503,7 +508,7 @@ def load_fight_stats(df_stats, conn):
     ]
     missing = [c for c in required_cols if c not in df_stats.columns]
     if missing:
-        logger.error(f"❌ Columnas faltantes en fight_stats CSV: {missing}")
+        logger.error(f"Columnas faltantes en fight_stats CSV: {missing}")
         return
 
     cursor = conn.cursor()
@@ -511,26 +516,24 @@ def load_fight_stats(df_stats, conn):
     df = df_stats[required_cols].copy()
     df = df.where(pd.notna(df), None)
 
-    # Snapshot completo
-    cursor.execute("TRUNCATE TABLE public.external_fight_stats;")
-
     insert_sql = """
         INSERT INTO public.external_fight_stats
         (event, bout, round, fighter, kd,
          sig_str, sig_str_pct, total_str, td, td_pct,
          sub_att, rev, ctrl, head, body, leg, distance, clinch, ground)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (event, bout, round, fighter) DO NOTHING
     """
 
     records = list(df.itertuples(index=False, name=None))
 
     try:
-        cursor.executemany(insert_sql, records)
+        psycopg2.extras.execute_batch(cursor, insert_sql, records, page_size=1000)
         conn.commit()
-        logger.info(f"✅ {len(records)} filas cargadas en external_fight_stats")
+        logger.info(f"{len(records)} filas procesadas en external_fight_stats (nuevas insertadas, duplicados ignorados)")
     except Exception as e:
         conn.rollback()
-        logger.error(f"❌ Error cargando fight_stats: {e}")
+        logger.error(f"Error cargando fight_stats: {e}")
         raise
 
 
