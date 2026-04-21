@@ -44,7 +44,7 @@ class UFCStatsSpider(Spider):
                 location=" ".join(row.xpath("td[2]//text()").getall()[0].split()),
                 link=content[2],
             )
-            if event.date.date() <= self.last_event_date:
+            if event.date.date() < self.last_event_date:
                 logging.info("Reached last event.")
                 break
 
