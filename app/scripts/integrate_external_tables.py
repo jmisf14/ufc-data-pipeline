@@ -261,6 +261,27 @@ def ensure_external_fight_results_table(conn):
         );
         """
     )
+    # Ensure unique constraint on url exists (table may predate this script)
+    cursor.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'public.external_fight_results'::regclass
+                  AND contype = 'u'
+                  AND conname LIKE '%url%'
+            ) THEN
+                DELETE FROM public.external_fight_results a
+                USING public.external_fight_results b
+                WHERE a.id > b.id AND a.url = b.url;
+
+                ALTER TABLE public.external_fight_results
+                ADD CONSTRAINT uq_fight_results_url UNIQUE (url);
+            END IF;
+        END $$;
+        """
+    )
     conn.commit()
     cursor.close()
 
@@ -280,6 +301,27 @@ def ensure_external_fighter_tott_table(conn):
             dob TEXT,
             url TEXT UNIQUE
         );
+        """
+    )
+    # Ensure unique constraint on url exists (table may predate this script)
+    cursor.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'public.external_fighter_tott'::regclass
+                  AND contype = 'u'
+                  AND conname LIKE '%url%'
+            ) THEN
+                DELETE FROM public.external_fighter_tott a
+                USING public.external_fighter_tott b
+                WHERE a.id > b.id AND a.url = b.url;
+
+                ALTER TABLE public.external_fighter_tott
+                ADD CONSTRAINT uq_fighter_tott_url UNIQUE (url);
+            END IF;
+        END $$;
         """
     )
     conn.commit()
